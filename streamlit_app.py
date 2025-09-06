@@ -262,9 +262,13 @@ def render_markdown(data: Dict[str, Any]) -> str:
 def build_gemini():
     if genai is None:
         raise RuntimeError("google-generativeai no está instalado.")
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    # Intentar obtener la API key de los secrets de Streamlit
+    api_key = st.secrets.get("GEMINI_API_KEY", "").strip()
     if not api_key:
-        raise RuntimeError("Falta GEMINI_API_KEY en variables de entorno.")
+        # Si no está en secrets, intentar obtenerla del input en la UI
+        api_key = st.session_state.get("gemini_key_override", "").strip()
+        if not api_key:
+            raise RuntimeError("Falta GEMINI_API_KEY en .streamlit/secrets.toml")
     genai.configure(api_key=api_key)
     model_name = st.session_state.get("gemini_model", DEFAULT_GEMINI_MODEL)
     return genai.GenerativeModel(model_name)
@@ -307,10 +311,11 @@ def main():
     st.caption("Sube una imagen del *Flight Departure Report* y extrae los campos en el formato requerido.")
 
     with st.expander("Configuración del proveedor", expanded=True):
-        st.text_input("GEMINI_API_KEY (o define la variable de entorno)", type="password", key="gemini_key_override")
+        # Solo mostrar el campo de API key si no está en secrets
+        if not st.secrets.get("GEMINI_API_KEY"):
+            st.text_input("GEMINI_API_KEY", type="password", key="gemini_key_override",
+                         help="Configura la API key en .streamlit/secrets.toml para no tener que ingresarla aquí")
         st.selectbox("Modelo Gemini", [DEFAULT_GEMINI_MODEL, "gemini-1.5-pro"], key="gemini_model")
-        if st.session_state.gemini_key_override:
-            os.environ["GEMINI_API_KEY"] = st.session_state.gemini_key_override
 
     uploaded = st.file_uploader("Sube la imagen (JPG/PNG)", type=["png", "jpg", "jpeg"])
 
@@ -416,7 +421,7 @@ def main():
 
     # Botón para guardar información revisada
     st.markdown("---")
-    guardar = st.button("GUARDAR INFORMACION REVISADA", type="primary", use_container_width=True)
+    guardar = st.button("ACTUALIZAR INFORMACION", type="primary", use_container_width=True)
     if guardar:
         # Actualiza el JSON y el reporte de WhatsApp en el estado
         st.session_state['editable_data'] = editable
