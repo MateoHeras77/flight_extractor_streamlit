@@ -1,0 +1,365 @@
+#!/usr/bin/env python3
+
+import os
+import io
+import re
+import json
+import base64
+import traceback
+from typing import Dict, Any
+import sys
+
+import streamlit as st
+
+
+# Solo Gemini
+try:
+    import google.generativeai as genai
+except Exception:
+    genai = None
+
+# Local OCR fallback (optional, best-effort)
+try:
+    import pytesseract
+    from PIL import Image, ImageFilter, ImageOps
+except Exception:
+    pytesseract = None
+    Image = None
+
+APP_TITLE = "Flight Report → Structured Extractor"
+
+DEFAULT_GEMINI_MODEL = "gemini-1.5-flash"
+
+EXPECTED_KEYS = {
+    "Datos Básicos": {
+        "Fecha de vuelo": "----",
+        "Origen": "----",
+        "Destino": "----",
+        "Número de vuelo": "----"
+    },
+    "Tiempos": {
+        "STD": "----",
+        "ATD": "----",
+        "Salida de Tripulacion": "----",
+        "Cantidad de Agentes Groomers": "----",
+        "Groomers In": "----",
+        "Groomers Out": "----",
+        "Crew at Gate": "----",
+        "OK to Board": "----",
+        "Flight Secure": "----",
+        "Cierre de Puerta": "----",
+        "Push Back": "----"
+    },
+    "Información de Customs": {
+        "Customs In": "----",
+        "Customs Out": "----"
+    },
+    "Información de Pasajeros": {
+        "Total Pax": "----",
+        "PAX C": "----",
+        "PAX Y": "----",
+        "Infantes": "----"
+    },
+    "Información por Demoras": {
+        "Delay": "----",
+        "Delay Code": "----"
+    },
+    "Silla de ruedas": {
+        "Sillas Vuelo Llegada (AV626)": "----",
+        "Agentes Vuelo Llegada (AV626)": "----",
+        "Sillas Vuelo Salida (AV627)": "----",
+        "Agentes Vuelo Salida (AV627)": "----"
+    },
+    "Información de Gate y Carrusel": {
+        "Gate": "----",
+        "Carrousel": "----"
+    },
+    "Información de Gate Bag": {
+        "Gate Bag": "----"
+    },
+    "Comentarios": {
+        "Comentarios": "----"
+    }
+}
+
+SYSTEM_PROMPT = """Eres un motor de extracción de datos extremadamente preciso para reportes de vuelo (Flight Departure Report).
+Tarea: a partir de una imagen del reporte, devuelve **estrictamente** un JSON con los siguientes campos y **exactamente** estas claves (en español). 
+Si un dato no aparece, escribe '----'. 
+Formatea las horas en HH:MM 24h y normaliza valores tipo Sillas (ej: '17 WCHR | 00 WCHC').
+No infieras datos que no estén legibles; prioriza fidelidad sobre completitud.
+
+Estructura JSON exacta (no agregues ni quites claves):
+{
+  "Datos Básicos": {
+    "Fecha de vuelo": "...",
+    "Origen": "...",
+    "Destino": "...",
+    "Número de vuelo": "..."
+  },
+  "Tiempos": {
+    "STD": "...",
+    "ATD": "...",
+    "Salida de Tripulacion": "...",
+    "Cantidad de Agentes Groomers": "...",
+    "Groomers In": "...",
+    "Groomers Out": "...",
+    "Crew at Gate": "...",
+    "OK to Board": "...",
+    "Flight Secure": "...",
+    "Cierre de Puerta": "...",
+    "Push Back": "..."
+  },
+  "Información de Customs": {
+    "Customs In": "...",
+    "Customs Out": "..."
+  },
+  "Información de Pasajeros": {
+    "Total Pax": "...",
+    "PAX C": "...",
+    "PAX Y": "...",
+    "Infantes": "..."
+  },
+  "Información por Demoras": {
+    "Delay": "...",
+    "Delay Code": "..."
+  },
+  "Silla de ruedas": {
+    "Sillas Vuelo Llegada (AV626)": "...",
+    "Agentes Vuelo Llegada (AV626)": "...",
+    "Sillas Vuelo Salida (AV627)": "...",
+    "Agentes Vuelo Salida (AV627)": "..."
+  },
+  "Información de Gate y Carrusel": {
+    "Gate": "...",
+    "Carrousel": "..."
+  },
+  "Información de Gate Bag": {
+    "Gate Bag": "..."
+  },
+  "Comentarios": {
+    "Comentarios": "..."
+  }
+}
+
+Reglas:
+- Usa '----' si falta información o es ilegible.
+- Mantén números enteros sin texto adicional (ej.: '140', no '140 pax'), excepto los campos de sillas, que deben seguir 'NN WCHR | NN WCHC' con ceros a la izquierda.
+- 'Customs In/Out': devuelve 'No Customs' si explícitamente el reporte indica que no hubo.
+- No devuelvas nada que no sea JSON.
+"""
+
+def safe_json_extract(text: str) -> Dict[str, Any]:
+    # Attempt to extract the first valid JSON object from a string response
+    if not text:
+        return {}
+    # Trim code fences if any
+    text = text.strip()
+    fence = "```"
+    if text.startswith(fence):
+        # remove first fence
+        text = text.split(fence, 2)
+        if len(text) >= 3:
+            text = text[1] if text[0].strip() == "" else text[2]
+        else:
+            text = text[-1]
+    # Find first { and last }
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidate = text[start:end+1]
+    else:
+        candidate = text
+    try:
+        return json.loads(candidate)
+    except Exception:
+        # Last resort: replace single quotes and try
+        try:
+            candidate2 = candidate.replace("'", '"')
+            return json.loads(candidate2)
+        except Exception:
+            return {}
+
+def merge_with_defaults(parsed: Dict[str, Any]) -> Dict[str, Any]:
+    # Ensure all keys exist and fill missing with '----'
+    out = json.loads(json.dumps(EXPECTED_KEYS))  # deep copy
+    for section, fields in out.items():
+        if section in parsed and isinstance(parsed[section], dict):
+            for key in fields.keys():
+                val = parsed[section].get(key, "----")
+                # normalize empty/none
+                if val is None or (isinstance(val, str) and val.strip() == ""):
+                    val = "----"
+                out[section][key] = str(val)
+    return out
+
+def render_markdown(data: Dict[str, Any]) -> str:
+    # Build the exact requested Markdown block
+    lines = []
+    # Datos básicos
+    lines.append("🚀 *Datos Básicos*:")
+    for k in EXPECTED_KEYS["Datos Básicos"].keys():
+        lines.append(f"\n*{k}:* {data['Datos Básicos'][k]}")
+    # Tiempos
+    lines.append("\n\n⏰ *Tiempos:*")
+    for k in EXPECTED_KEYS["Tiempos"].keys():
+        lines.append(f"\n*{k}:* {data['Tiempos'][k]}")
+    # Customs
+    lines.append("\n\n📋 *Información de Customs:*")
+    for k in EXPECTED_KEYS["Información de Customs"].keys():
+        lines.append(f"\n*{k}:* {data['Información de Customs'][k]}")
+    # Pasajeros
+    lines.append("\n\n👥 *Información de Pasajeros:*")
+    for k in EXPECTED_KEYS["Información de Pasajeros"].keys():
+        lines.append(f"\n*{k}:* {data['Información de Pasajeros'][k]}")
+    # Demoras
+    lines.append("\n\n⏳ *Información por Demoras:*")
+    for k in EXPECTED_KEYS["Información por Demoras"].keys():
+        lines.append(f"\n*{k}:* {data['Información por Demoras'][k]}")
+    # Sillas
+    lines.append("\n\n♿ *Silla de ruedas:*")
+    for k in EXPECTED_KEYS["Silla de ruedas"].keys():
+        lines.append(f"\n*{k}:* {data['Silla de ruedas'][k]}")
+    # Gate/Carrusel
+    lines.append("\n\n📍 *Información de Gate y Carrusel:*")
+    for k in EXPECTED_KEYS["Información de Gate y Carrusel"].keys():
+        lines.append(f"\n*{k}:* {data['Información de Gate y Carrusel'][k]}")
+    # Gate Bag
+    lines.append("\n\n🧳 *Información de Gate Bag:*")
+    for k in EXPECTED_KEYS["Información de Gate Bag"].keys():
+        lines.append(f"\n*{k}:* {data['Información de Gate Bag'][k]}")
+    # Comentarios
+    lines.append("\n\n💬 *Comentarios:*")
+    lines.append(f"\n{data['Comentarios']['Comentarios']}")
+    lines.append("\n---")
+    return "".join(lines)
+
+def build_gemini():
+    if genai is None:
+        raise RuntimeError("google-generativeai no está instalado.")
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("Falta GEMINI_API_KEY en variables de entorno.")
+    genai.configure(api_key=api_key)
+    model_name = st.session_state.get("gemini_model", DEFAULT_GEMINI_MODEL)
+    return genai.GenerativeModel(model_name)
+
+def gemini_extract(img_bytes: bytes) -> Dict[str, Any]:
+    model = build_gemini()
+    prompt = SYSTEM_PROMPT
+    blob = {"mime_type": "image/png", "data": img_bytes}
+    try:
+        resp = model.generate_content([prompt, blob], generation_config={"temperature": 0})
+        text = resp.text
+        # Logging de tokens y detalles de la API
+        # Los objetos Gemini devuelven usage_metadata si está disponible
+        usage = getattr(resp, "usage_metadata", None)
+        if usage:
+            print("[Gemini API] Tokens usados:", file=sys.stderr)
+            print(f"  Prompt tokens: {usage.prompt_token_count}", file=sys.stderr)
+            print(f"  Candidates tokens: {usage.candidates_token_count}", file=sys.stderr)
+            print(f"  Total tokens: {usage.total_token_count}", file=sys.stderr)
+        # Mostrar info de modelo y precios (hardcodeado, puede cambiar)
+        print(f"[Gemini API] Modelo: {model.model_name}", file=sys.stderr)
+        print("[Gemini API] Precios estimados (sept 2025):", file=sys.stderr)
+        print("  gemini-1.5-flash: $0.35/millón input tokens, $1.05/millón output tokens", file=sys.stderr)
+        print("  gemini-1.5-pro: $3.50/millón input tokens, $10.50/millón output tokens", file=sys.stderr)
+    except Exception as e:
+        raise RuntimeError(f"Gemini error: {e}")
+    parsed = safe_json_extract(text)
+    return merge_with_defaults(parsed)
+
+
+
+def local_ocr_extract(img_bytes: bytes) -> Dict[str, Any]:
+    """Very rough fallback using Tesseract; returns mostly '----' with best-effort fields.
+       Intended as privacy-friendly/offline option or to pre-check legibility.
+    """
+    if pytesseract is None or Image is None:
+        raise RuntimeError("pytesseract y/o Pillow no están instalados.")
+    img = Image.open(io.BytesIO(img_bytes)).convert("L")
+    img = ImageOps.autocontrast(img)
+    img = img.filter(ImageFilter.SHARPEN)
+    text = pytesseract.image_to_string(img, lang="eng")
+    # Very naive regexes to grab common fields
+    def find(pattern, default="----"):
+        m = re.search(pattern, text, re.IGNORECASE)
+        return m.group(1).strip() if m else default
+    out = json.loads(json.dumps(EXPECTED_KEYS))
+    out["Datos Básicos"]["Fecha de vuelo"] = find(r"DATE\s*[:\-]?\s*([0-9]{1,2}\s*\w+\s*[0-9]{2,4}|[0-9\-]{8,10})", "----")
+    out["Datos Básicos"]["Origen"] = find(r"ROUTING\s*[:\-]?\s*([A-Z]{3})\s*-\s*[A-Z]{3}", "----")
+    out["Datos Básicos"]["Destino"] = find(r"ROUTING\s*[:\-]?\s*[A-Z]{3}\s*-\s*([A-Z]{3})", "----")
+    out["Datos Básicos"]["Número de vuelo"] = find(r"FLIGHT\s*NUMBER\s*[:\-]?\s*([A-Z0-9]+)", "----")
+
+    out["Tiempos"]["STD"] = find(r"STD\s*[:\-]?\s*([0-2]?\d:\d{2})", "----")
+    out["Tiempos"]["ATD"] = find(r"ATD\s*[:\-]?\s*([0-2]?\d:\d{2})", "----")
+    out["Tiempos"]["Crew at Gate"] = find(r"CREW AT THE GATE\s*[:\-]?\s*([0-2]?\d:\d{2})", "----")
+    out["Tiempos"]["OK to Board"] = find(r"OK TO BOARD\s*[:\-]?\s*([0-2]?\d:\d{2})", "----")
+    out["Tiempos"]["Flight Secure"] = find(r"FLIGHT SECURE\s*[:\-]?\s*([0-2]?\d:\d{2})", "----")
+    out["Tiempos"]["Cierre de Puerta"] = find(r"CLOSE DOORS?\s*[:\-]?\s*([0-2]?\d:\d{2})", "----")
+    out["Tiempos"]["Push Back"] = find(r"PUSH BACK\s*[:\-]?\s*([0-2]?\d:\d{2})", "----")
+
+    out["Información de Pasajeros"]["Total Pax"] = find(r"TOTAL ON BOARD\s*[:\-]?\s*([0-9]+)", "----")
+
+    # Everything else remains '----'
+    return out
+
+
+def main():
+    st.set_page_config(page_title=APP_TITLE, page_icon="🛫", layout="centered")
+    st.title(APP_TITLE)
+    st.caption("Sube una imagen del *Flight Departure Report* y extrae los campos en el formato requerido.")
+
+    with st.expander("Configuración del proveedor", expanded=True):
+        provider = st.selectbox(
+            "Proveedor",
+            ["Gemini", "Local OCR (experimental)"],
+            help="Elige el motor de extracción. Gemini requiere API key; el OCR local es básico y menos preciso."
+        )
+        if provider == "Gemini":
+            st.text_input("GEMINI_API_KEY (o define la variable de entorno)", type="password", key="gemini_key_override")
+            st.selectbox("Modelo Gemini", [DEFAULT_GEMINI_MODEL, "gemini-1.5-pro"], key="gemini_model")
+            if st.session_state.gemini_key_override:
+                os.environ["GEMINI_API_KEY"] = st.session_state.gemini_key_override
+
+    uploaded = st.file_uploader("Sube la imagen (JPG/PNG)", type=["png", "jpg", "jpeg"])
+
+    cols = st.columns(2)
+    with cols[0]:
+        run = st.button("Extraer", type="primary", use_container_width=True)
+    with cols[1]:
+        st.write("")
+
+    if run:
+        if not uploaded:
+            st.error("Primero sube una imagen.")
+            st.stop()
+        img_bytes = uploaded.read()
+        try:
+            if provider == "Gemini":
+                data = gemini_extract(img_bytes)
+            else:
+                data = local_ocr_extract(img_bytes)
+        except Exception as e:
+            st.error(f"Error durante la extracción: {e}")
+            with st.expander("Traceback"):
+                st.code(traceback.format_exc())
+            st.stop()
+
+        md = render_markdown(data)
+        st.subheader("Resultado (formato solicitado)")
+        st.markdown(md)
+
+        st.subheader("JSON crudo")
+        st.json(data)
+
+        # Download buttons
+        st.download_button("Descargar JSON", data=json.dumps(data, ensure_ascii=False, indent=2), file_name="resultado.json", mime="application/json")
+        st.download_button("Descargar TXT (formato visual)", data=md, file_name="resultado.txt", mime="text/plain")
+
+    st.markdown("---")
+    st.markdown("""**Consejo:** para formularios con escritura manual, las LLMs funcionan mejor si la imagen es nítida, sin sombras y con contraste alto. 
+Si un campo no está en el reporte, la salida **debe** ser '----'. No se permite 'inventar' valores.
+""")
+
+if __name__ == "__main__":
+    main()
