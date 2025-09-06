@@ -412,10 +412,19 @@ def main():
     editable['Comentarios']['Comentarios'] = st.text_area("Comentarios", value=editable['Comentarios']['Comentarios'], key="comentarios")
 
 
+
+    # Botón para guardar información revisada
+    st.markdown("---")
+    guardar = st.button("GUARDAR INFORMACION REVISADA", type="primary", use_container_width=True)
+    if guardar:
+        # Actualiza el JSON y el reporte de WhatsApp en el estado
+        st.session_state['editable_data'] = editable
+        st.success("Información revisada guardada correctamente.")
+
     # Sección para copiar reporte a portapapeles
     st.markdown("---")
     st.subheader("Copiar reporte a Portapapeles para WhatsApp")
-    wpp_report = build_wpp_report(editable)
+    wpp_report = build_wpp_report(st.session_state['editable_data'])
 
     # Campo de texto y botón real de copiar usando JS
     st.text_area("Reporte para WhatsApp", value=wpp_report, height=600, key="wpp_report", help="Copia y pega este texto en WhatsApp. El formato es compatible.")
