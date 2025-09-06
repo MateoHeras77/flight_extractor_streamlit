@@ -425,23 +425,9 @@ def main():
     st.markdown("---")
     st.subheader("Copiar reporte a Portapapeles para WhatsApp")
     wpp_report = build_wpp_report(st.session_state['editable_data'])
-
-    # Campo de texto y botón real de copiar usando JS
     st.text_area("Reporte para WhatsApp", value=wpp_report, height=600, key="wpp_report", help="Copia y pega este texto en WhatsApp. El formato es compatible.")
-    copy_code = f"""
-    <script>
-    function copyToClipboard() {{
-        var text = document.getElementById('wpp_report_area').value;
-        navigator.clipboard.writeText(text);
-    }}
-    </script>
-    <style>
-    #wpp_report_area {{ font-family: monospace; font-size: 1.1em; }}
-    </style>
-    <textarea id='wpp_report_area' style='width:100%;height:300px;font-family:monospace;font-size:1.1em;'>{wpp_report}</textarea><br>
-    <button onclick='copyToClipboard()' style='background:#25d366;color:white;padding:8px 16px;border:none;border-radius:5px;font-size:1.1em;cursor:pointer;'>Copiar reporte a Portapapeles</button>
-    """
-    st.markdown(copy_code, unsafe_allow_html=True)
+    # Botón nativo de copiar (solo muestra mensaje de ayuda)
+    st.info("Selecciona todo el texto y cópialo con Ctrl+C o Cmd+C. El botón de copiar automático no es soportado por Streamlit puro.")
 
     # Botones de descarga y visualización
     st.markdown("---")
