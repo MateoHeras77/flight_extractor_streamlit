@@ -1,3 +1,32 @@
+def build_wpp_report(data: dict) -> str:
+    # Construye el reporte en formato texto para WhatsApp, con los * y datos en la misma línea
+    lines = []
+    lines.append("🚀 *Datos Básicos*:\n")
+    for k in EXPECTED_KEYS["Datos Básicos"].keys():
+        lines.append(f"*{k}:* {data['Datos Básicos'][k]}\n")
+    lines.append("⏰ *Tiempos:*\n")
+    for k in EXPECTED_KEYS["Tiempos"].keys():
+        lines.append(f"*{k}:* {data['Tiempos'][k]}\n")
+    lines.append("📋 *Información de Customs:*\n")
+    for k in EXPECTED_KEYS["Información de Customs"].keys():
+        lines.append(f"*{k}:* {data['Información de Customs'][k]}\n")
+    lines.append("👥 *Información de Pasajeros:*\n")
+    for k in EXPECTED_KEYS["Información de Pasajeros"].keys():
+        lines.append(f"*{k}:* {data['Información de Pasajeros'][k]}\n")
+    lines.append("⏳ *Información por Demoras:*\n")
+    for k in EXPECTED_KEYS["Información por Demoras"].keys():
+        lines.append(f"*{k}:* {data['Información por Demoras'][k]}\n")
+    lines.append("♿ *Silla de ruedas:*\n")
+    for k in EXPECTED_KEYS['Silla de ruedas'].keys():
+        lines.append(f"*{k}:* {data['Silla de ruedas'][k]}\n")
+    lines.append("📍 *Información de Gate y Carrusel:*\n")
+    for k in EXPECTED_KEYS['Información de Gate y Carrusel'].keys():
+        lines.append(f"*{k}:* {data['Información de Gate y Carrusel'][k]}\n")
+    lines.append("🧳 *Información de Gate Bag:*\n")
+    lines.append(f"*Gate Bag:* {data['Información de Gate Bag']['Gate Bag']}\n")
+    lines.append("💬 *Comentarios:*\n")
+    lines.append(f"{data['Comentarios']['Comentarios']}\n")
+    return "".join(lines)
 #!/usr/bin/env python3
 
 import os
@@ -381,6 +410,29 @@ def main():
 
     st.markdown("\n💬 **Comentarios:**")
     editable['Comentarios']['Comentarios'] = st.text_area("Comentarios", value=editable['Comentarios']['Comentarios'], key="comentarios")
+
+
+    # Sección para copiar reporte a portapapeles
+    st.markdown("---")
+    st.subheader("Copiar reporte a Portapapeles para WhatsApp")
+    wpp_report = build_wpp_report(editable)
+
+    # Campo de texto y botón real de copiar usando JS
+    st.text_area("Reporte para WhatsApp", value=wpp_report, height=600, key="wpp_report", help="Copia y pega este texto en WhatsApp. El formato es compatible.")
+    copy_code = f"""
+    <script>
+    function copyToClipboard() {{
+        var text = document.getElementById('wpp_report_area').value;
+        navigator.clipboard.writeText(text);
+    }}
+    </script>
+    <style>
+    #wpp_report_area {{ font-family: monospace; font-size: 1.1em; }}
+    </style>
+    <textarea id='wpp_report_area' style='width:100%;height:300px;font-family:monospace;font-size:1.1em;'>{wpp_report}</textarea><br>
+    <button onclick='copyToClipboard()' style='background:#25d366;color:white;padding:8px 16px;border:none;border-radius:5px;font-size:1.1em;cursor:pointer;'>Copiar reporte a Portapapeles</button>
+    """
+    st.markdown(copy_code, unsafe_allow_html=True)
 
     # Botones de descarga y visualización
     st.markdown("---")
