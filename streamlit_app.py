@@ -39,6 +39,7 @@ from typing import Dict, Any
 import sys
 
 import streamlit as st
+import pyperclip
 
 
 
@@ -426,8 +427,14 @@ def main():
     st.subheader("Copiar reporte a Portapapeles para WhatsApp")
     wpp_report = build_wpp_report(st.session_state['editable_data'])
     st.text_area("Reporte para WhatsApp", value=wpp_report, height=600, key="wpp_report", help="Copia y pega este texto en WhatsApp. El formato es compatible.")
-    # Botón nativo de copiar (solo muestra mensaje de ayuda)
-    st.info("Selecciona todo el texto y cópialo con Ctrl+C o Cmd+C. El botón de copiar automático no es soportado por Streamlit puro.")
+    
+    if st.button("📱 Copiar reporte para WhatsApp", type="primary"):
+        try:
+            pyperclip.copy(wpp_report)
+            st.success("¡Reporte copiado al portapapeles! Ya puedes pegarlo en WhatsApp 📋")
+        except Exception as e:
+            st.error(f"No se pudo copiar al portapapeles: {str(e)}")
+            st.info("Selecciona todo el texto y cópialo con Ctrl+C o Cmd+C manualmente.")
 
     # Botones de descarga y visualización
     st.markdown("---")
