@@ -39,7 +39,6 @@ from typing import Dict, Any
 import sys
 
 import streamlit as st
-import pyperclip
 
 
 
@@ -421,7 +420,7 @@ def main():
 
     # Botón para guardar información revisada
     st.markdown("---")
-    guardar = st.button("ACTUALIZAR INFORMACION", type="primary", use_container_width=True)
+    guardar = st.button("ACTUALIZAR INFORMACION -", type="primary", use_container_width=True)
     if guardar:
         # Actualiza el JSON y el reporte de WhatsApp en el estado
         st.session_state['editable_data'] = editable
@@ -431,15 +430,30 @@ def main():
     st.markdown("---")
     st.subheader("Copiar reporte a Portapapeles para WhatsApp")
     wpp_report = build_wpp_report(st.session_state['editable_data'])
-    st.text_area("Reporte para WhatsApp", value=wpp_report, height=600, key="wpp_report", help="Copia y pega este texto en WhatsApp. El formato es compatible.")
+    st.code(wpp_report, language="")
     
-    if st.button("📱 Copiar reporte para WhatsApp", type="primary"):
-        try:
-            pyperclip.copy(wpp_report)
-            st.success("¡Reporte copiado al portapapeles! Ya puedes pegarlo en WhatsApp 📋")
-        except Exception as e:
-            st.error(f"No se pudo copiar al portapapeles: {str(e)}")
-            st.info("Selecciona todo el texto y cópialo con Ctrl+C o Cmd+C manualmente.")
+    # Botón con JavaScript para copiar al portapapeles
+    js_text = wpp_report.replace("\n", "\\n").replace('"', '\\"')
+    st.markdown(
+        f"""
+        <div style="display: flex; justify-content: center; margin-bottom: 1rem;">
+            <button 
+                onclick="navigator.clipboard.writeText('{js_text}').then(() => {{
+                    this.innerHTML = '✅ ¡Copiado!';
+                    setTimeout(() => {{
+                        this.innerHTML = '📱 Copiar reporte para WhatsApp';
+                    }}, 2000);
+                }})"
+                style="background-color: #FF4B4B; color: white; padding: 0.5rem 1rem; 
+                border: none; border-radius: 0.5rem; cursor: pointer; font-size: 1rem;
+                display: flex; align-items: center; gap: 0.5rem;"
+            >
+                📱 Copiar reporte para WhatsApp
+            </button>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     # Botones de descarga y visualización
     st.markdown("---")
