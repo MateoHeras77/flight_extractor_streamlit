@@ -4,12 +4,13 @@ import os
 import io
 import re
 import json
-import base64
+
 import traceback
 from typing import Dict, Any
 import sys
 
 import streamlit as st
+
 
 
 # Solo Gemini
@@ -18,15 +19,10 @@ try:
 except Exception:
     genai = None
 
-# Local OCR fallback (optional, best-effort)
-try:
-    import pytesseract
-    from PIL import Image, ImageFilter, ImageOps
-except Exception:
-    pytesseract = None
-    Image = None
+
 
 APP_TITLE = "Flight Report → Structured Extractor"
+
 
 DEFAULT_GEMINI_MODEL = "gemini-1.5-flash"
 
@@ -270,38 +266,9 @@ def gemini_extract(img_bytes: bytes) -> Dict[str, Any]:
 
 
 
-def local_ocr_extract(img_bytes: bytes) -> Dict[str, Any]:
-    """Very rough fallback using Tesseract; returns mostly '----' with best-effort fields.
-       Intended as privacy-friendly/offline option or to pre-check legibility.
-    """
-    if pytesseract is None or Image is None:
-        raise RuntimeError("pytesseract y/o Pillow no están instalados.")
-    img = Image.open(io.BytesIO(img_bytes)).convert("L")
-    img = ImageOps.autocontrast(img)
-    img = img.filter(ImageFilter.SHARPEN)
-    text = pytesseract.image_to_string(img, lang="eng")
-    # Very naive regexes to grab common fields
-    def find(pattern, default="----"):
-        m = re.search(pattern, text, re.IGNORECASE)
-        return m.group(1).strip() if m else default
-    out = json.loads(json.dumps(EXPECTED_KEYS))
-    out["Datos Básicos"]["Fecha de vuelo"] = find(r"DATE\s*[:\-]?\s*([0-9]{1,2}\s*\w+\s*[0-9]{2,4}|[0-9\-]{8,10})", "----")
-    out["Datos Básicos"]["Origen"] = find(r"ROUTING\s*[:\-]?\s*([A-Z]{3})\s*-\s*[A-Z]{3}", "----")
-    out["Datos Básicos"]["Destino"] = find(r"ROUTING\s*[:\-]?\s*[A-Z]{3}\s*-\s*([A-Z]{3})", "----")
-    out["Datos Básicos"]["Número de vuelo"] = find(r"FLIGHT\s*NUMBER\s*[:\-]?\s*([A-Z0-9]+)", "----")
 
-    out["Tiempos"]["STD"] = find(r"STD\s*[:\-]?\s*([0-2]?\d:\d{2})", "----")
-    out["Tiempos"]["ATD"] = find(r"ATD\s*[:\-]?\s*([0-2]?\d:\d{2})", "----")
-    out["Tiempos"]["Crew at Gate"] = find(r"CREW AT THE GATE\s*[:\-]?\s*([0-2]?\d:\d{2})", "----")
-    out["Tiempos"]["OK to Board"] = find(r"OK TO BOARD\s*[:\-]?\s*([0-2]?\d:\d{2})", "----")
-    out["Tiempos"]["Flight Secure"] = find(r"FLIGHT SECURE\s*[:\-]?\s*([0-2]?\d:\d{2})", "----")
-    out["Tiempos"]["Cierre de Puerta"] = find(r"CLOSE DOORS?\s*[:\-]?\s*([0-2]?\d:\d{2})", "----")
-    out["Tiempos"]["Push Back"] = find(r"PUSH BACK\s*[:\-]?\s*([0-2]?\d:\d{2})", "----")
 
-    out["Información de Pasajeros"]["Total Pax"] = find(r"TOTAL ON BOARD\s*[:\-]?\s*([0-9]+)", "----")
 
-    # Everything else remains '----'
-    return out
 
 
 def main():
@@ -310,18 +277,16 @@ def main():
     st.caption("Sube una imagen del *Flight Departure Report* y extrae los campos en el formato requerido.")
 
     with st.expander("Configuración del proveedor", expanded=True):
-        provider = st.selectbox(
-            "Proveedor",
-            ["Gemini", "Local OCR (experimental)"],
-            help="Elige el motor de extracción. Gemini requiere API key; el OCR local es básico y menos preciso."
-        )
-        if provider == "Gemini":
-            st.text_input("GEMINI_API_KEY (o define la variable de entorno)", type="password", key="gemini_key_override")
-            st.selectbox("Modelo Gemini", [DEFAULT_GEMINI_MODEL, "gemini-1.5-pro"], key="gemini_model")
-            if st.session_state.gemini_key_override:
-                os.environ["GEMINI_API_KEY"] = st.session_state.gemini_key_override
+        st.text_input("GEMINI_API_KEY (o define la variable de entorno)", type="password", key="gemini_key_override")
+        st.selectbox("Modelo Gemini", [DEFAULT_GEMINI_MODEL, "gemini-1.5-pro"], key="gemini_model")
+        if st.session_state.gemini_key_override:
+            os.environ["GEMINI_API_KEY"] = st.session_state.gemini_key_override
 
     uploaded = st.file_uploader("Sube la imagen (JPG/PNG)", type=["png", "jpg", "jpeg"])
+
+    # Estado para los datos extraídos y editados
+    if 'editable_data' not in st.session_state:
+        st.session_state['editable_data'] = json.loads(json.dumps(EXPECTED_KEYS))
 
     cols = st.columns(2)
     with cols[0]:
@@ -335,31 +300,95 @@ def main():
             st.stop()
         img_bytes = uploaded.read()
         try:
-            if provider == "Gemini":
-                data = gemini_extract(img_bytes)
-            else:
-                data = local_ocr_extract(img_bytes)
+            data = gemini_extract(img_bytes)
         except Exception as e:
             st.error(f"Error durante la extracción: {e}")
             with st.expander("Traceback"):
                 st.code(traceback.format_exc())
             st.stop()
+        # Guardar en el estado editable
+        st.session_state['editable_data'] = data
 
-        md = render_markdown(data)
-        st.subheader("Resultado (formato solicitado)")
-        st.markdown(md)
-
-        st.subheader("JSON crudo")
-        st.json(data)
-
-        # Download buttons
-        st.download_button("Descargar JSON", data=json.dumps(data, ensure_ascii=False, indent=2), file_name="resultado.json", mime="application/json")
-        st.download_button("Descargar TXT (formato visual)", data=md, file_name="resultado.txt", mime="text/plain")
-
+    # Mostrar campos editables agrupados por sección
     st.markdown("---")
-    st.markdown("""**Consejo:** para formularios con escritura manual, las LLMs funcionan mejor si la imagen es nítida, sin sombras y con contraste alto. 
-Si un campo no está en el reporte, la salida **debe** ser '----'. No se permite 'inventar' valores.
-""")
+    editable = st.session_state['editable_data']
+
+    # 🚀 Datos Básicos
+    st.markdown("🚀 **Datos Básicos**:")
+    with st.container():
+        c1, c2 = st.columns(2)
+        with c1:
+            editable['Datos Básicos']['Fecha de vuelo'] = st.text_input("✈️ Fecha de vuelo", value=editable['Datos Básicos']['Fecha de vuelo'], key="fecha_vuelo")
+            editable['Datos Básicos']['Origen'] = st.text_input("🛫 Origen", value=editable['Datos Básicos']['Origen'], key="origen")
+        with c2:
+            editable['Datos Básicos']['Destino'] = st.text_input("🛬 Destino", value=editable['Datos Básicos']['Destino'], key="destino")
+            editable['Datos Básicos']['Número de vuelo'] = st.text_input("# Número de vuelo", value=editable['Datos Básicos']['Número de vuelo'], key="num_vuelo")
+
+    st.markdown("\n⏰ **Tiempos:**")
+    with st.container():
+        c1, c2 = st.columns(2)
+        for i, k in enumerate(EXPECTED_KEYS['Tiempos'].keys()):
+            col = c1 if i % 2 == 0 else c2
+            editable['Tiempos'][k] = col.text_input(f"{k}", value=editable['Tiempos'][k], key=f"tiempos_{k}")
+
+    st.markdown("\n📋 **Información de Customs:**")
+    with st.container():
+        c1, c2 = st.columns(2)
+        i = 0
+        for k in EXPECTED_KEYS['Información de Customs'].keys():
+            col = c1 if i % 2 == 0 else c2
+            editable['Información de Customs'][k] = col.text_input(f"{k}", value=editable['Información de Customs'][k], key=f"customs_{k}")
+            i += 1
+
+    st.markdown("\n👥 **Información de Pasajeros:**")
+    with st.container():
+        c1, c2 = st.columns(2)
+        i = 0
+        for k in EXPECTED_KEYS['Información de Pasajeros'].keys():
+            col = c1 if i % 2 == 0 else c2
+            editable['Información de Pasajeros'][k] = col.text_input(f"{k}", value=editable['Información de Pasajeros'][k], key=f"pax_{k}")
+            i += 1
+
+    st.markdown("\n⏳ **Información por Demoras:**")
+    with st.container():
+        c1, c2 = st.columns(2)
+        i = 0
+        for k in EXPECTED_KEYS['Información por Demoras'].keys():
+            col = c1 if i % 2 == 0 else c2
+            editable['Información por Demoras'][k] = col.text_input(f"{k}", value=editable['Información por Demoras'][k], key=f"demoras_{k}")
+            i += 1
+
+    st.markdown("\n♿ **Silla de ruedas:**")
+    with st.container():
+        c1, c2 = st.columns(2)
+        i = 0
+        for k in EXPECTED_KEYS['Silla de ruedas'].keys():
+            col = c1 if i % 2 == 0 else c2
+            editable['Silla de ruedas'][k] = col.text_input(f"{k}", value=editable['Silla de ruedas'][k], key=f"silla_{k}")
+            i += 1
+
+    st.markdown("\n📍 **Información de Gate y Carrusel:**")
+    with st.container():
+        c1, c2 = st.columns(2)
+        i = 0
+        for k in EXPECTED_KEYS['Información de Gate y Carrusel'].keys():
+            col = c1 if i % 2 == 0 else c2
+            editable['Información de Gate y Carrusel'][k] = col.text_input(f"{k}", value=editable['Información de Gate y Carrusel'][k], key=f"gatecarrusel_{k}")
+            i += 1
+
+    st.markdown("\n🧳 **Información de Gate Bag:**")
+    editable['Información de Gate Bag']['Gate Bag'] = st.text_input("Gate Bag", value=editable['Información de Gate Bag']['Gate Bag'], key="gatebag")
+
+    st.markdown("\n💬 **Comentarios:**")
+    editable['Comentarios']['Comentarios'] = st.text_area("Comentarios", value=editable['Comentarios']['Comentarios'], key="comentarios")
+
+    # Botones de descarga y visualización
+    st.markdown("---")
+    st.subheader("JSON editable actual")
+    st.json(editable)
+    st.download_button("Descargar JSON", data=json.dumps(editable, ensure_ascii=False, indent=2), file_name="resultado.json", mime="application/json")
+
+    st.markdown("""**Consejo:** para formularios con escritura manual, las LLMs funcionan mejor si la imagen es nítida, sin sombras y con contraste alto.\nSi un campo no está en el reporte, la salida **debe** ser '----'. No se permite 'inventar' valores.""")
 
 if __name__ == "__main__":
     main()
