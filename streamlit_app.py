@@ -116,10 +116,10 @@ EXPECTED_KEYS = {
         "Delay Code": "----"
     },
     "Silla de ruedas": {
-        "Sillas Vuelo Llegada (AV626)": "----",
-        "Agentes Vuelo Llegada (AV626)": "----",
-        "Sillas Vuelo Salida (AV627)": "----",
-        "Agentes Vuelo Salida (AV627)": "----"
+        "Sillas Vuelo Llegada": "----",
+        "Agentes Vuelo Llegada": "----",
+        "Sillas Vuelo Salida": "----",
+        "Agentes Vuelo Salida": "----"
     },
     "Información de Gate y Carrusel": {
         "Gate": "----",
@@ -175,10 +175,10 @@ Estructura JSON exacta (no agregues ni quites claves):
     "Delay Code": "..."
   },
   "Silla de ruedas": {
-    "Sillas Vuelo Llegada (AV626)": "...",
-    "Agentes Vuelo Llegada (AV626)": "...",
-    "Sillas Vuelo Salida (AV627)": "...",
-    "Agentes Vuelo Salida (AV627)": "..."
+    "Sillas Vuelo Llegada": "...",
+    "Agentes Vuelo Llegada": "...",
+    "Sillas Vuelo Salida": "...",
+    "Agentes Vuelo Salida": "..."
   },
   "Información de Gate y Carrusel": {
     "Gate": "...",
