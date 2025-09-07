@@ -441,14 +441,14 @@ def main():
                 onclick="navigator.clipboard.writeText('{js_text}').then(() => {{
                     this.innerHTML = '✅ ¡Copiado!';
                     setTimeout(() => {{
-                        this.innerHTML = '📱 Copiar reporte para WhatsApp';
+                        this.innerHTML = '📱 Botón de copiar: Esquina superior derecha del cuadro';
                     }}, 2000);
                 }})"
                 style="background-color: #FF4B4B; color: white; padding: 0.5rem 1rem; 
                 border: none; border-radius: 0.5rem; cursor: pointer; font-size: 1rem;
                 display: flex; align-items: center; gap: 0.5rem;"
             >
-                📱 Copiar reporte para WhatsApp
+                📱 Botón de copiar: Esquina superior derecha del cuadro
             </button>
         </div>
         """,
