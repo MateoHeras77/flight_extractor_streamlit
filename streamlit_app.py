@@ -1,32 +1,58 @@
 def build_wpp_report(data: dict) -> str:
     # Construye el reporte en formato texto para WhatsApp, con los * y datos en la misma línea
     lines = []
-    lines.append("🚀 *Datos Básicos*:\n")
+    # Datos Básicos
+    lines.append("🚀 *Datos Básicos*:")
     for k in EXPECTED_KEYS["Datos Básicos"].keys():
-        lines.append(f"*{k}:* {data['Datos Básicos'][k]}\n")
-    lines.append("⏰ *Tiempos:*\n")
+        lines.append(f"*{k}:* {data['Datos Básicos'][k]}")
+    lines.append("")  # Línea en blanco entre secciones
+    
+    # Tiempos
+    lines.append("⏰ *Tiempos:*")
     for k in EXPECTED_KEYS["Tiempos"].keys():
-        lines.append(f"*{k}:* {data['Tiempos'][k]}\n")
-    lines.append("📋 *Información de Customs:*\n")
+        lines.append(f"*{k}:* {data['Tiempos'][k]}")
+    lines.append("")
+    
+    # Customs
+    lines.append("📋 *Información de Customs:*")
     for k in EXPECTED_KEYS["Información de Customs"].keys():
-        lines.append(f"*{k}:* {data['Información de Customs'][k]}\n")
-    lines.append("👥 *Información de Pasajeros:*\n")
+        lines.append(f"*{k}:* {data['Información de Customs'][k]}")
+    lines.append("")
+    
+    # Pasajeros
+    lines.append("👥 *Información de Pasajeros:*")
     for k in EXPECTED_KEYS["Información de Pasajeros"].keys():
-        lines.append(f"*{k}:* {data['Información de Pasajeros'][k]}\n")
-    lines.append("⏳ *Información por Demoras:*\n")
+        lines.append(f"*{k}:* {data['Información de Pasajeros'][k]}")
+    lines.append("")
+    
+    # Demoras
+    lines.append("⏳ *Información por Demoras:*")
     for k in EXPECTED_KEYS["Información por Demoras"].keys():
-        lines.append(f"*{k}:* {data['Información por Demoras'][k]}\n")
-    lines.append("♿ *Silla de ruedas:*\n")
+        lines.append(f"*{k}:* {data['Información por Demoras'][k]}")
+    lines.append("")
+    
+    # Silla de ruedas
+    lines.append("♿ *Silla de ruedas:*")
     for k in EXPECTED_KEYS['Silla de ruedas'].keys():
-        lines.append(f"*{k}:* {data['Silla de ruedas'][k]}\n")
-    lines.append("📍 *Información de Gate y Carrusel:*\n")
+        lines.append(f"*{k}:* {data['Silla de ruedas'][k]}")
+    lines.append("")
+    
+    # Gate y Carrusel
+    lines.append("📍 *Información de Gate y Carrusel:*")
     for k in EXPECTED_KEYS['Información de Gate y Carrusel'].keys():
-        lines.append(f"*{k}:* {data['Información de Gate y Carrusel'][k]}\n")
-    lines.append("🧳 *Información de Gate Bag:*\n")
-    lines.append(f"*Gate Bag:* {data['Información de Gate Bag']['Gate Bag']}\n")
-    lines.append("💬 *Comentarios:*\n")
-    lines.append(f"{data['Comentarios']['Comentarios']}\n")
-    return "".join(lines)
+        lines.append(f"*{k}:* {data['Información de Gate y Carrusel'][k]}")
+    lines.append("")
+    
+    # Gate Bag
+    lines.append("🧳 *Información de Gate Bag:*")
+    lines.append(f"*Gate Bag:* {data['Información de Gate Bag']['Gate Bag']}")
+    lines.append("")
+    
+    # Comentarios
+    lines.append("💬 *Comentarios:*")
+    lines.append(data['Comentarios']['Comentarios'])
+    
+    return "\n".join(lines)
 #!/usr/bin/env python3
 
 import os
@@ -420,7 +446,7 @@ def main():
 
     # Botón para guardar información revisada
     st.markdown("---")
-    guardar = st.button("ACTUALIZAR INFORMACION -", type="primary", use_container_width=True)
+    guardar = st.button("ACTUALIZAR INFORMACION", type="primary", use_container_width=True)
     if guardar:
         # Actualiza el JSON y el reporte de WhatsApp en el estado
         st.session_state['editable_data'] = editable
